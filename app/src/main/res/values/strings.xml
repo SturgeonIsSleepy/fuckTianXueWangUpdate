@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">天学网版本伪装</string>
+    <string name="module_description">仅在天学网进程内把自身 versionCode 伪装为 2100000000。</string>
+</resources>
