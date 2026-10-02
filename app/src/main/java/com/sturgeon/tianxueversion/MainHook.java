@@ -13,8 +13,10 @@ public final class MainHook implements IXposedHookLoadPackage {
     private static final String TAG = "[TianXueVersionSpoof]";
     private static final String TARGET_PACKAGE = "com.up366.mobile";
     private static final int FAKE_VERSION_CODE = 2_100_000_000;
+    private static final long FAKE_LONG_VERSION_CODE = 2_100_000_000L;
 
-    private static volatile boolean spoofLogged = false;
+    private static volatile boolean packageInfoLogged = false;
+    private static volatile boolean longVersionLogged = false;
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
@@ -29,7 +31,7 @@ public final class MainHook implements IXposedHookLoadPackage {
                 lpparam.classLoader
         );
 
-        XC_MethodHook hook = new XC_MethodHook() {
+        XC_MethodHook packageInfoHook = new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) {
                 Object result = param.getResult();
@@ -45,19 +47,47 @@ public final class MainHook implements IXposedHookLoadPackage {
                 int oldVersionCode = info.versionCode;
                 info.versionCode = FAKE_VERSION_CODE;
 
+                // versionCodeMajor is hidden on some SDK stubs but exists on
+                // Android versions that support long version codes.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    info.versionCodeMajor = 0;
+                    try {
+                        XposedHelpers.setIntField(info, "versionCodeMajor", 0);
+                    } catch (Throwable ignored) {
+                    }
                 }
 
-                if (!spoofLogged) {
-                    spoofLogged = true;
-                    XposedBridge.log(TAG + " spoofed versionCode "
+                if (!packageInfoLogged) {
+                    packageInfoLogged = true;
+                    XposedBridge.log(TAG + " spoofed PackageInfo.versionCode "
                             + oldVersionCode + " -> " + FAKE_VERSION_CODE);
                 }
             }
         };
 
-        XposedBridge.hookAllMethods(apm, "getPackageInfo", hook);
-        XposedBridge.hookAllMethods(apm, "getPackageInfoAsUser", hook);
+        XposedBridge.hookAllMethods(apm, "getPackageInfo", packageInfoHook);
+        XposedBridge.hookAllMethods(apm, "getPackageInfoAsUser", packageInfoHook);
+
+        // Also cover apps that call PackageInfo.getLongVersionCode().
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            XposedBridge.hookAllMethods(PackageInfo.class, "getLongVersionCode",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            PackageInfo info = (PackageInfo) param.thisObject;
+                            if (info == null || !TARGET_PACKAGE.equals(info.packageName)) {
+                                return;
+                            }
+
+                            param.setResult(FAKE_LONG_VERSION_CODE);
+
+                            if (!longVersionLogged) {
+                                longVersionLogged = true;
+                                XposedBridge.log(TAG
+                                        + " spoofed PackageInfo.getLongVersionCode() -> "
+                                        + FAKE_LONG_VERSION_CODE);
+                            }
+                        }
+                    });
+        }
     }
 }
